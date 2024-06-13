@@ -6,7 +6,11 @@
 </div>
 
 
-ClusterSubmit is a Python tool designed to simplify the submission of computational jobs to High-Performance Computing (HPC) clusters. It supports job submission through both Slurm and Sun Grid Engine (SGE) workload managers. With ClusterSubmit, users can easily configure and submit jobs, manage resource allocation, and monitor job progress.
+ClusterSubmit is a Python tool designed to simplify the submission of computational jobs to High-Performance Computing (HPC) clusters. 
+
+Designed specifically for SBNB work environment - but easily adaptable to other infrastructures. 
+
+It supports job submission through both Slurm and Sun Grid Engine (SGE) workload managers. With ClusterSubmit, users can easily configure and submit jobs, manage resource allocation, and monitor job progress.
 
 ## Table of Contents
 - [Features](#features)
