@@ -75,13 +75,8 @@ export SINGULARITY_BINDPATH="/home/sbnb"
             args = ""
             args_str = " ".join(f"${i}" for i in range(1, len(script_py.split()) + 1))
 
-        print(sh_path)
-
         if sh_path is None:
             sh_path = os.getcwd()
-        
-        print(sh_path  )
-
         if eo_path is None:
             eo_path = os.getcwd()
         if not os.path.exists(eo_path):
