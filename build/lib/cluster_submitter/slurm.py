@@ -28,7 +28,7 @@ class Slurm:
             if self.ssh:
                 self.ssh.close()
 
-    def submit_job(self, script_py, time, mem, cpus, array="1-1", ntasks=1, N=None, args=None,
+    def submit_job(self, script_py, time, mem, cpus, array="1-1", ntasks=1,gpus=None, N=None, args=None,
                    sh_path=None, eo_path="/hom/sbnb/ddalton/area_52/scripts/run_log",
                    image="/home/sbnb/ddalton/singularity_images/cc_py37.simg", cc_image=True,
                    os_remove=True, partition=None, exclude=None):
@@ -60,6 +60,7 @@ class Slurm:
 #!/bin/bash
 {options}
 
+{gpu_config}
 # for DB servers connection
 export SINGULARITYENV_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
 export SINGULARITY_BINDPATH="/home/sbnb"
@@ -102,6 +103,12 @@ export SINGULARITY_BINDPATH="/home/sbnb"
         if exclude:
             options += f"\n#SBATCH --exclude={exclude}"
 
+        if gpus:
+            options += f"\n#SBATCH --gpus={gpus}"
+            gpu_config = """
+# CUDA drivers
+export LD_LIBRARY_PATH=/apps/manual/software/CUDA/11.6.1/lib64:/apps/manual/software/CUDA/11.6.1/targets/x86_64-linux/lib:/apps/manual/software/CUDA/11.6.1/extras/CUPTI/lib64/:/apps/manual/software/CUDA/11.6.1/nvvm/lib64/:$LD_LIBRARY_PATH
+"""        
         commands = f"singularity exec {image} python {args_str}"
 
         job_script = job_script_template.format(options=options, commands=commands)
