@@ -60,6 +60,8 @@ class Slurm:
 #!/bin/bash
 {options}
 
+cd {script_dir}
+
 {gpu_config}
 # for DB servers connection
 export SINGULARITYENV_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
@@ -89,14 +91,16 @@ export SINGULARITY_BINDPATH="/home/sbnb"
             image = os.path.join(os.getcwd(), image)
             if not os.path.exists(image):
                 raise FileNotFoundError(f"Singularity image {image} does not exist.")
+
         image = image.replace("/aloy/home", "/home/sbnb")
+        eo_path = os.path.abspath(eo_path).replace("/aloy/home", "/home/sbnb")
 
         options = f"""
 #SBATCH --job-name={N}
 #SBATCH --time={time}
 #SBATCH --cpus-per-task={cpus}
 #SBATCH --mem={mem}GB
-#SBATCH --output={eo_path}{N}.%j.out
+#SBATCH --output={eo_path}/{N}.%j.out
 """
         if partition:
             options += f"\n#SBATCH --partition={partition}"
@@ -113,7 +117,9 @@ export LD_LIBRARY_PATH=/apps/manual/software/CUDA/11.6.1/lib64:/apps/manual/soft
             gpu_config = ""
         commands = f"singularity exec {image} python {args_str}"
 
-        job_script = job_script_template.format(options=options, gpu_config=gpu_config,commands=commands)
+        script_dir = os.path.dirname(script_py).replace("/aloy/home", "/home/sbnb")
+
+        job_script = job_script_template.format(options=options, gpu_config=gpu_config,script_dir=script_dir,commands=commands)
 
         jobname_sh = f"job_{str(uuid.uuid4())[:4]}.sh"
         jobname_sh_path = os.path.join(sh_path, jobname_sh)
@@ -122,9 +128,8 @@ export LD_LIBRARY_PATH=/apps/manual/software/CUDA/11.6.1/lib64:/apps/manual/soft
             f.write(job_script)
 
         # once job_sh is created, we can adapt it to cluster directories
-        __current_dir = os.getcwd().replace("/aloy/home", "/home/sbnb")
-        jobname_sh_path = jobname_sh_path.replace("/aloy/home", "/home/sbnb")
-        script_py = script_py.replace("/aloy/home", "/home/sbnb")
+        jobname_sh_absolute_path = os.path.abspath(jobname_sh_path).replace("/aloy/home", "/home/sbnb")
+        script_py = os.path.abspath(script_py).replace("/aloy/home", "/home/sbnb")
         
         
         try:
@@ -133,7 +138,8 @@ export LD_LIBRARY_PATH=/apps/manual/software/CUDA/11.6.1/lib64:/apps/manual/soft
             self.ssh.load_system_host_keys()
             self.ssh.connect(self.host, username=self.username, password=self.password)
 
-            command = f"cd {__current_dir}; sbatch {jobname_sh_path} {script_py} {args}"
+            # command = f"cd {__current_dir}; sbatch {jobname_sh_path} {script_py} {args}"
+            command = f"sbatch {jobname_sh_absolute_path} {script_py} {args}"
             logging.info(f"Running command: {command}")
 
             _stdin, _stdout, _stderr = self.ssh.exec_command(command)
@@ -147,3 +153,23 @@ export LD_LIBRARY_PATH=/apps/manual/software/CUDA/11.6.1/lib64:/apps/manual/soft
                 self.ssh.close()
             if os_remove and os.path.exists(jobname_sh_path):
                 os.remove(jobname_sh_path)
+
+
+    def get_my_job_status(self):
+        """Get the status of the submitted job."""
+        try:
+            logging.info(random.choice(shreck_quotes))
+            self.ssh = paramiko.SSHClient()
+            self.ssh.load_system_host_keys()
+            self.ssh.connect(self.host, username=self.username, password=self.password)
+
+            # command = f"cd {__current_dir}; sbatch {jobname_sh_path} {script_py} {args}"
+            command = f"squeue -u {self.username}"
+            logging.info(f"Running command: {command}")
+
+            _stdin, _stdout, _stderr = self.ssh.exec_command(command)
+            logging.info(_stdout.read().decode())
+            logging.info(_stderr.read().decode())
+        except paramiko.SSHException as e:
+            logging.error(f"Unable to establish SSH connection: {e}")
+            raise
