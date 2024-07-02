@@ -12,6 +12,11 @@ Designed specifically for SBNB work environment - but easily adaptable to other 
 
 It supports job submission through both Slurm and Sun Grid Engine (SGE) workload managers. With ClusterSubmit, users can easily configure and submit jobs, manage resource allocation, and monitor job progress.
 
+## To-Do List
+ - Sending array jobs
+ - Updating status of job
+
+
 ## Table of Contents
 - [Features](#features)
 - [Requirements](#requirements)

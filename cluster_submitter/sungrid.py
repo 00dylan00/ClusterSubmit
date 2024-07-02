@@ -95,6 +95,12 @@ OMP_NUM_THREADS={pe} OPENBLAS_NUM_THREADS={pe} MKL_NUM_THREADS={pe} VECLIB_MAXIM
 if [[ -f $HOME/.bashrc ]]; then
   source $HOME/.bashrc
 fi
+
+
+# Moves to the directory where the script is located
+# This ensures that the script can access files in the same directory
+cd {os.path.dirname(script_py)}
+
 {commands}
 """
 
