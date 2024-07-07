@@ -4,7 +4,7 @@
 #SBATCH --partition=irb_gpu_3090
 # #SBATCH -p sbnb-gpu
 #SBATCH --array=1-1
-#SBATCH --gpus=4
+#SBATCH --gpus=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=100G
 #SBATCH --time=20:00:00
