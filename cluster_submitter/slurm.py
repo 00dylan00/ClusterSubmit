@@ -143,7 +143,9 @@ export SINGULARITY_BINDPATH="/aloy/home"
             logging.info(_stderr.read().decode())
             self.job_id = output_message.split()[-1]
 
-            # 
+            # safely rename the bash script to the job_id ! !
+            jobname_sh_path_new = os.path.join(sh_path, f"job_{self.job_id}.sh")
+            os.rename(jobname_sh_path, jobname_sh_path_new)
 
 
         except paramiko.SSHException as e:
