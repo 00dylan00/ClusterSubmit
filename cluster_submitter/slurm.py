@@ -30,7 +30,7 @@ class Slurm:
 
     def submit_job(self, script_py, time, mem, cpus, array="1-1", ntasks=1,gpus=None, N=None, args=None,
                    sh_path=None, eo_path="/hom/sbnb/ddalton/area_52/scripts/run_log",
-                   image="/home/sbnb/ddalton/singularity_images/cc_py37.simg", cc_image=True,
+                   image="/aloy/home/ddalton/singularity_images/cc_py37.simg", cc_image=True,
                    os_remove=True, partition=None, exclude=None):
         
         """
@@ -47,7 +47,7 @@ class Slurm:
             - args (str or list, optional): Command-line arguments for the Python script, by default None.
             - sh_path (str, optional): Directory path where the job script will be saved. If None, current directory is used.
             - eo_path (str, optional): Path for the standard output and error log files, by default "/hom/sbnb/ddalton/area_52/scripts/run_log".
-            - image (str, optional): Path to the Singularity image, by default "/home/sbnb/ddalton/singularity_images/cc_py37.simg".
+            - image (str, optional): Path to the Singularity image, by default "/aloy/home/ddalton/singularity_images/cc_py37.simg".
             - cc_image (bool, optional): Flag indicating whether to use a specific Singularity image for ChemicalChecker, by default True.
             - os_remove (bool, optional): Flag to remove the job script file after submission, by default True.
             - partition (str, optional): Specifies a partition for the job, if needed, by default None.
@@ -62,10 +62,9 @@ class Slurm:
 
 cd {script_dir}
 
-{gpu_config}
 # for DB servers connection
 export SINGULARITYENV_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
-export SINGULARITY_BINDPATH="/home/sbnb"
+export SINGULARITY_BINDPATH="/aloy/home"
 {commands}
 """
 
@@ -92,8 +91,8 @@ export SINGULARITY_BINDPATH="/home/sbnb"
             if not os.path.exists(image):
                 raise FileNotFoundError(f"Singularity image {image} does not exist.")
 
-        image = image.replace("/aloy/home", "/home/sbnb")
-        eo_path = os.path.abspath(eo_path).replace("/aloy/home", "/home/sbnb")
+        image = image
+        eo_path = os.path.abspath(eo_path)
 
         options = f"""
 #SBATCH --job-name={N}
@@ -102,6 +101,8 @@ export SINGULARITY_BINDPATH="/home/sbnb"
 #SBATCH --mem={mem}GB
 #SBATCH --output={eo_path}/{N}.%j.out
 """
+
+        commands = f"singularity exec {image} python {args_str}"
         if partition:
             options += f"\n#SBATCH --partition={partition}"
         if exclude:
@@ -109,17 +110,11 @@ export SINGULARITY_BINDPATH="/home/sbnb"
 
         if gpus:
             options += f"\n#SBATCH --gpus={gpus}"
-            gpu_config = """
-# CUDA drivers
-export LD_LIBRARY_PATH=/apps/manual/software/CUDA/11.6.1/lib64:/apps/manual/software/CUDA/11.6.1/targets/x86_64-linux/lib:/apps/manual/software/CUDA/11.6.1/extras/CUPTI/lib64/:/apps/manual/software/CUDA/11.6.1/nvvm/lib64/:$LD_LIBRARY_PATH
-"""        
-        else:
-            gpu_config = ""
-        commands = f"singularity exec {image} python {args_str}"
+            commands = f"singularity exec --cleanenv --nv {image} python {args_str}"
 
-        script_dir = os.path.dirname(script_py).replace("/aloy/home", "/home/sbnb")
+        script_dir = os.path.dirname(script_py)
 
-        job_script = job_script_template.format(options=options, gpu_config=gpu_config,script_dir=script_dir,commands=commands)
+        job_script = job_script_template.format(options=options,script_dir=script_dir,commands=commands)
 
         jobname_sh = f"job_{str(uuid.uuid4())[:4]}.sh"
         jobname_sh_path = os.path.join(sh_path, jobname_sh)
@@ -128,8 +123,8 @@ export LD_LIBRARY_PATH=/apps/manual/software/CUDA/11.6.1/lib64:/apps/manual/soft
             f.write(job_script)
 
         # once job_sh is created, we can adapt it to cluster directories
-        jobname_sh_absolute_path = os.path.abspath(jobname_sh_path).replace("/aloy/home", "/home/sbnb")
-        script_py = os.path.abspath(script_py).replace("/aloy/home", "/home/sbnb")
+        jobname_sh_absolute_path = os.path.abspath(jobname_sh_path)
+        script_py = os.path.abspath(script_py)
         
         
         try:
@@ -143,8 +138,14 @@ export LD_LIBRARY_PATH=/apps/manual/software/CUDA/11.6.1/lib64:/apps/manual/soft
             logging.info(f"Running command: {command}")
 
             _stdin, _stdout, _stderr = self.ssh.exec_command(command)
-            logging.info(_stdout.read().decode())
+            output_message = _stdout.read().decode().strip()
+            logging.info(output_message)
             logging.info(_stderr.read().decode())
+            self.job_id = output_message.split()[-1]
+
+            # 
+
+
         except paramiko.SSHException as e:
             logging.error(f"Unable to establish SSH connection: {e}")
             raise
@@ -155,7 +156,7 @@ export LD_LIBRARY_PATH=/apps/manual/software/CUDA/11.6.1/lib64:/apps/manual/soft
                 os.remove(jobname_sh_path)
 
 
-    def get_my_job_status(self):
+    def get_status(self):
         """Get the status of the submitted job."""
         try:
             logging.info(random.choice(shreck_quotes))
@@ -173,3 +174,51 @@ export LD_LIBRARY_PATH=/apps/manual/software/CUDA/11.6.1/lib64:/apps/manual/soft
         except paramiko.SSHException as e:
             logging.error(f"Unable to establish SSH connection: {e}")
             raise
+
+    def cancel(self):
+        """Cancel a specific job submitted by the user."""
+        try:
+            logging.info(random.choice(shreck_quotes))
+            self.ssh = paramiko.SSHClient()
+            self.ssh.load_system_host_keys()
+            self.ssh.connect(self.host, username=self.username, password=self.password)
+
+            # command = f"cd {__current_dir}; sbatch {jobname_sh_path} {script_py} {args}"
+            command = f"scancel {self.job_id}"
+            logging.info(f"Running command: {command}")
+
+            _stdin, _stdout, _stderr = self.ssh.exec_command(command)
+            logging.info(_stdout.read().decode())
+            logging.info(_stderr.read().decode())
+
+        except paramiko.SSHException as e:
+            logging.error(f"Unable to establish SSH connection: {e}")
+            raise
+
+
+    def cancel_all(self):
+        """Cancel ALL jobs submitted by the user."""
+        try:
+            logging.info(random.choice(shreck_quotes))
+            self.ssh = paramiko.SSHClient()
+            self.ssh.load_system_host_keys()
+            self.ssh.connect(self.host, username=self.username, password=self.password)
+
+            # command = f"cd {__current_dir}; sbatch {jobname_sh_path} {script_py} {args}"
+            command = f"scancel -u {self.username}"
+            logging.info(f"Running command: {command}")
+
+            _stdin, _stdout, _stderr = self.ssh.exec_command(command)
+            logging.info(_stdout.read().decode())
+            logging.info(_stderr.read().decode())
+        except paramiko.SSHException as e:
+            logging.error(f"Unable to establish SSH connection: {e}")
+            raise
+
+
+
+
+# this used to be necessary for GPU !
+# export LD_LIBRARY_PATH=/apps/manual/software/CUDA/11.6.1/lib64:/apps/manual/software/CUDA/11.6.1/targets/x86_64-linux/lib:/apps/manual/software/CUDA/11.6.1/extras/CUPTI/lib64/:/apps/manual/software/CUDA/11.6.1/nvvm/lib64/:$LD_LIBRARY_PATH
+    
+        
