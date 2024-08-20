@@ -160,7 +160,7 @@ module load CUDA/12.0.0"""
 
             # safely rename the bash script to the job_id ! !
             jobname_sh_path_new = os.path.join(sh_path, f"job_{self.job_id}.sh")
-            logging.info(f"Renaming {jobname_sh_path} to {jobname_sh_path_new}")
+            logging.debug(f"Renaming {jobname_sh_path} to {jobname_sh_path_new}")
 
             os.rename(jobname_sh_path, jobname_sh_path_new)
 
