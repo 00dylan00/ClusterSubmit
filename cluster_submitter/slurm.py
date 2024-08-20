@@ -60,7 +60,10 @@ class Slurm:
 #!/bin/bash
 {options}
 
+{gpu_config}
+
 cd {script_dir}
+
 
 # for DB servers connection
 export SINGULARITYENV_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
@@ -102,6 +105,7 @@ export SINGULARITY_BINDPATH="/aloy/home"
 #SBATCH --output={eo_path}/{N}.%j.out
 """
 
+        gpu_config = ""
         commands = f"singularity exec {image} python {args_str}"
         if partition:
             options += f"\n#SBATCH --partition={partition}"
@@ -111,10 +115,21 @@ export SINGULARITY_BINDPATH="/aloy/home"
         if gpus:
             options += f"\n#SBATCH --gpus={gpus}"
             commands = f"singularity exec --cleanenv --nv {image} python {args_str}"
+            gpu_config = """
+# Source LMOD
+# Necessary for using `module` - this when using 
+# paramiko is not loaded
+source /etc/profile.d/z00-lmod.sh
+
+# CUDA drivers
+module load CUDA/12.0.0"""         
+
 
         script_dir = os.path.dirname(script_py)
+        if len(script_dir) == 0:
+            script_dir = os.getcwd()
 
-        job_script = job_script_template.format(options=options,script_dir=script_dir,commands=commands)
+        job_script = job_script_template.format(options=options,gpu_config=gpu_config,script_dir=script_dir,commands=commands)
 
         jobname_sh = f"job_{str(uuid.uuid4())[:4]}.sh"
         jobname_sh_path = os.path.join(sh_path, jobname_sh)
@@ -145,6 +160,8 @@ export SINGULARITY_BINDPATH="/aloy/home"
 
             # safely rename the bash script to the job_id ! !
             jobname_sh_path_new = os.path.join(sh_path, f"job_{self.job_id}.sh")
+            logging.info(f"Renaming {jobname_sh_path} to {jobname_sh_path_new}")
+
             os.rename(jobname_sh_path, jobname_sh_path_new)
 
 
@@ -154,8 +171,8 @@ export SINGULARITY_BINDPATH="/aloy/home"
         finally:
             if self.ssh:
                 self.ssh.close()
-            if os_remove and os.path.exists(jobname_sh_path):
-                os.remove(jobname_sh_path)
+            if os_remove and os.path.exists(jobname_sh_path_new):
+                os.remove(jobname_sh_path_new)
 
 
     def get_status(self):
@@ -221,6 +238,6 @@ export SINGULARITY_BINDPATH="/aloy/home"
 
 
 # this used to be necessary for GPU !
-# export LD_LIBRARY_PATH=/apps/manual/software/CUDA/11.6.1/lib64:/apps/manual/software/CUDA/11.6.1/targets/x86_64-linux/lib:/apps/manual/software/CUDA/11.6.1/extras/CUPTI/lib64/:/apps/manual/software/CUDA/11.6.1/nvvm/lib64/:$LD_LIBRARY_PATH
+# export LD_LIBRARY_PATH=/apps/manual/software/CUDA/12.1/lib64:/apps/manual/software/CUDA/12.1/targets/x86_64-linux/lib:/apps/manual/software/CUDA/12.1/extras/CUPTI/lib64/:/apps/manual/software/CUDA/12.1/nvvm/lib64/:$LD_LIBRARY_PATH
     
         
