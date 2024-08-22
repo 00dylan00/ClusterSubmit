@@ -28,7 +28,56 @@ class Slurm:
             if self.ssh:
                 self.ssh.close()
 
-    def submit_job(self, script_py, time, mem, cpus, array="1-1", ntasks=1,gpus=None, N=None, args=None,
+
+    def submit_job(self, script_py, time, mem, cpus, n_array=None,gpus=None, N=None, args=None,
+                   sh_path=None, eo_path="/hom/sbnb/ddalton/area_52/scripts/run_log",
+                   image="/aloy/home/ddalton/singularity_images/cc_py37.simg", cc_image=True,
+                   os_remove=True, partition=None, exclude=None):
+        """
+        Submits a job to an HPC cluster using Slurm.
+
+        Args:
+            - script_py (str): The path to the Python script to be executed.
+            - time (str): The wall time for the job in the format 'HH:MM:SS'.
+            - mem (int): The amount of memory required for the job in GB.
+            - cpus (int): The number of CPU cores to allocate for the job.
+            - n_array (int, optional): Defines the nº of jobs for a given array.
+            - ntasks (int, optional): Number of tasks per job, by default 1.
+            - N (str, optional): The name of the job. If None, the script name without extension is used.
+            - args (str or list, optional): Command-line arguments for the Python script, by default None.
+            - sh_path (str, optional): Directory path where the job script will be saved. If None, current directory is used.
+            - eo_path (str, optional): Path for the standard output and error log files, by default "/hom/sbnb/ddalton/area_52/scripts/run_log".
+            - image (str, optional): Path to the Singularity image, by default "/aloy/home/ddalton/singularity_images/cc_py37.simg".
+            - cc_image (bool, optional): Flag indicating whether to use a specific Singularity image for ChemicalChecker, by default True.
+            - os_remove (bool, optional): Flag to remove the job script file after submission, by default True.
+            - partition (str, optional): Specifies a partition for the job, if needed, by default None.
+            - exclude (str, optional): A list of partition to exclude from job allocation, by default None.
+
+        """
+        # set as variable for all
+        self.eo_path = eo_path
+
+        max_jobs = 1000
+        if n_array:
+            n_jobs = n_array // max_jobs
+            n_jobs_last = n_array % max_jobs
+            for i in range(n_jobs):
+                self._submit_single_job(script_py, time, mem, cpus, array=f"1-{max_jobs}", offset=i*max_jobs, gpus=gpus, N=N, args=args,
+                   sh_path=sh_path, eo_path=eo_path, image=image, cc_image=cc_image,
+                   os_remove=os_remove, partition=partition, exclude=exclude)
+            
+            if n_jobs_last:
+                self._submit_single_job(script_py, time, mem, cpus, array=f"1-{n_jobs_last}", offset=n_jobs*max_jobs, gpus=gpus, N=N, args=args,
+                   sh_path=sh_path, eo_path=eo_path, image=image, cc_image=cc_image,
+                   os_remove=os_remove, partition=partition, exclude=exclude)
+        
+        else:
+            self._submit_single_job(script_py, time, mem, cpus, array=None, gpus=gpus, N=N, args=args,
+                   sh_path=sh_path, eo_path=eo_path, image=image, cc_image=cc_image,
+                   os_remove=os_remove, partition=partition, exclude=exclude)
+
+
+    def _submit_single_job(self, script_py, time, mem, cpus, array=None, offset=None, gpus=None, N=None, args=None,
                    sh_path=None, eo_path="/hom/sbnb/ddalton/area_52/scripts/run_log",
                    image="/aloy/home/ddalton/singularity_images/cc_py37.simg", cc_image=True,
                    os_remove=True, partition=None, exclude=None):
@@ -42,7 +91,6 @@ class Slurm:
             - mem (int): The amount of memory required for the job in GB.
             - cpus (int): The number of CPU cores to allocate for the job.
             - array (str, optional): Defines a job array, by default "1-1".
-            - ntasks (int, optional): Number of tasks per job, by default 1.
             - N (str, optional): The name of the job. If None, the script name without extension is used.
             - args (str or list, optional): Command-line arguments for the Python script, by default None.
             - sh_path (str, optional): Directory path where the job script will be saved. If None, current directory is used.
@@ -53,12 +101,17 @@ class Slurm:
             - partition (str, optional): Specifies a partition for the job, if needed, by default None.
             - exclude (str, optional): A list of partition to exclude from job allocation, by default None.
 
+        TO DO:
+            - SBATCH --ntasks
+
         """
         
         
         job_script_template = """\
 #!/bin/bash
 {options}
+
+{array_config}
 
 {gpu_config}
 
@@ -124,12 +177,24 @@ source /etc/profile.d/z00-lmod.sh
 # CUDA drivers
 module load CUDA/12.0.0"""         
 
+        array_config = ""
+        if array:
+            options += f"\n#SBATCH --array={array}"
+            commands += " $SLURM_ARRAY_TASK_ID"
+            if not offset:
+                offset = 0
+            array_config = f"""
+# Manually offset the SLURM_ARRAY_TASK_ID
+OFFSET={offset}
+TASK_ID=$(($SLURM_ARRAY_TASK_ID + $OFFSET))
+"""
+
 
         script_dir = os.path.dirname(script_py)
         if len(script_dir) == 0:
             script_dir = os.getcwd()
 
-        job_script = job_script_template.format(options=options,gpu_config=gpu_config,script_dir=script_dir,commands=commands)
+        job_script = job_script_template.format(options=options,gpu_config=gpu_config,script_dir=script_dir, array_config=array_config,commands=commands)
 
         jobname_sh = f"job_{str(uuid.uuid4())[:4]}.sh"
         jobname_sh_path = os.path.join(sh_path, jobname_sh)
@@ -192,7 +257,7 @@ module load CUDA/12.0.0"""
             logging.info(_stderr.read().decode())
         except paramiko.SSHException as e:
             logging.error(f"Unable to establish SSH connection: {e}")
-            raise
+            raise e
 
     def cancel(self):
         """Cancel a specific job submitted by the user."""
@@ -212,7 +277,7 @@ module load CUDA/12.0.0"""
 
         except paramiko.SSHException as e:
             logging.error(f"Unable to establish SSH connection: {e}")
-            raise
+            raise e
 
 
     def cancel_all(self):
@@ -232,11 +297,16 @@ module load CUDA/12.0.0"""
             logging.info(_stderr.read().decode())
         except paramiko.SSHException as e:
             logging.error(f"Unable to establish SSH connection: {e}")
-            raise
+            raise e
 
+    def logs(self):
+        """Print the logs of the submitted job.
+        For that open the output and error log files."""
 
-
-
+        output_path = self.eo_path
+        with open(self.eo_path, "r") as f:
+            logging.info(f"Output log file: {self.eo_path}")
+            print(f.read())
 # this used to be necessary for GPU !
 # export LD_LIBRARY_PATH=/apps/manual/software/CUDA/12.1/lib64:/apps/manual/software/CUDA/12.1/targets/x86_64-linux/lib:/apps/manual/software/CUDA/12.1/extras/CUPTI/lib64/:/apps/manual/software/CUDA/12.1/nvvm/lib64/:$LD_LIBRARY_PATH
     
