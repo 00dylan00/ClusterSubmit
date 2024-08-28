@@ -126,7 +126,7 @@ export SINGULARITY_BINDPATH="/aloy/home"
 
         if N is None:
             N = script_py.split("/")[-1].split(" ")[0].split(".py")[0]
-
+        self.N = N
         if args is not None:
             args_str = " ".join(f"${i}" for i in range(1, len(script_py.split()) + 1))
         else:
@@ -229,7 +229,6 @@ TASK_ID=$(($SLURM_ARRAY_TASK_ID + $OFFSET))
 
             os.rename(jobname_sh_path, jobname_sh_path_new)
 
-
         except paramiko.SSHException as e:
             logging.error(f"Unable to establish SSH connection: {e}")
             raise
@@ -303,10 +302,23 @@ TASK_ID=$(($SLURM_ARRAY_TASK_ID + $OFFSET))
         """Print the logs of the submitted job.
         For that open the output and error log files."""
 
-        output_path = self.eo_path
-        with open(self.eo_path, "r") as f:
-            logging.info(f"Output log file: {self.eo_path}")
-            print(f.read())
+        from time import sleep
+
+        
+        output_path = os.path.join(self.eo_path,f"{self.N}.{self.job_id}.out")
+        
+        for i in range(10):
+        
+            if os.path.exists(output_path):
+                with open(output_path, "r") as f:
+                    logging.info(f"Output log file: {output_path}")
+                    print(f.read())
+                return
+            print(f"Waiting for output log file to be created {i}s /20s . . .", end="\r")    
+            sleep(1)
+        
+        logging.error(f"Output log file {output_path} not found.")
+        
 # this used to be necessary for GPU !
 # export LD_LIBRARY_PATH=/apps/manual/software/CUDA/12.1/lib64:/apps/manual/software/CUDA/12.1/targets/x86_64-linux/lib:/apps/manual/software/CUDA/12.1/extras/CUPTI/lib64/:/apps/manual/software/CUDA/12.1/nvvm/lib64/:$LD_LIBRARY_PATH
     
