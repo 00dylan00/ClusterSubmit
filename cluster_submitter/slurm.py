@@ -31,7 +31,9 @@ class Slurm:
 
     def submit_job(self, script_py:str, time:str, mem:int, cpus:int, n_array:int=None, n_concurrent:int=None, gpus:int=None, N:str=None, args:str=None,
                    sh_path:str=None, eo_path:str="/hom/sbnb/ddalton/area_52/scripts/run_log",
-                   image:str="/aloy/home/ddalton/singularity_images/cc_py37.simg", cc_image:bool=True,
+                   singularity_image:str=None, 
+                   conda_env:str=None, 
+                   cc_image:bool=True,
                    os_remove:bool=True, partition:str=None, exclude:str=None):
         """
         Submits a job to an HPC cluster using Slurm.
@@ -48,7 +50,8 @@ class Slurm:
             - args (str or list, optional): Command-line arguments for the Python script, by default None.
             - sh_path (str, optional): Directory path where the job script will be saved. If None, current directory is used.
             - eo_path (str, optional): Path for the standard output and error log files, by default "/hom/sbnb/ddalton/area_52/scripts/run_log".
-            - image (str, optional): Path to the Singularity image, by default "/aloy/home/ddalton/singularity_images/cc_py37.simg".
+            - singularity_image (str, optional): Path to the Singularity image
+            - conda_env (str, optional): Name of the conda environment to activate, by default None.
             - cc_image (bool, optional): Flag indicating whether to use a specific Singularity image for ChemicalChecker, by default True.
             - os_remove (bool, optional): Flag to remove the job script file after submission, by default True.
             - partition (str, optional): Specifies a partition for the job, if needed, by default None.
@@ -65,24 +68,26 @@ class Slurm:
             for i in range(n_jobs):
                 array_params = f"1-{max_jobs}%{n_concurrent}" if n_concurrent else f"1-{max_jobs}"
                 self._submit_single_job(script_py, time, mem, cpus, array=array_params, offset=i*max_jobs, gpus=gpus, N=N, args=args,
-                   sh_path=sh_path, eo_path=eo_path, image=image, cc_image=cc_image,
+                   sh_path=sh_path, eo_path=eo_path, singularity_image=singularity_image, conda_env=conda_env, cc_image=cc_image,
                    os_remove=os_remove, partition=partition, exclude=exclude)
             
             if n_jobs_last:
                 array_params = f"1-{n_jobs_last}%{n_concurrent}" if n_concurrent else f"1-{max_jobs}"
                 self._submit_single_job(script_py, time, mem, cpus, array=array_params, offset=n_jobs*max_jobs, gpus=gpus, N=N, args=args,
-                   sh_path=sh_path, eo_path=eo_path, image=image, cc_image=cc_image,
+                   sh_path=sh_path, eo_path=eo_path, singularity_image=singularity_image, conda_env=conda_env, cc_image=cc_image,
                    os_remove=os_remove, partition=partition, exclude=exclude)
         
         else:
             self._submit_single_job(script_py, time, mem, cpus, array=None, gpus=gpus, N=N, args=args,
-                   sh_path=sh_path, eo_path=eo_path, image=image, cc_image=cc_image,
+                   sh_path=sh_path, eo_path=eo_path, singularity_image=singularity_image, conda_env=conda_env, cc_image=cc_image,
                    os_remove=os_remove, partition=partition, exclude=exclude)
 
 
     def _submit_single_job(self, script_py, time, mem, cpus, array=None, offset=None, gpus=None, N=None, args=None,
                    sh_path=None, eo_path="/hom/sbnb/ddalton/area_52/scripts/run_log",
-                   image="/aloy/home/ddalton/singularity_images/cc_py37.simg", cc_image=True,
+                   singularity_image:str=None,
+                   conda_env:str=None,
+                   cc_image=True,
                    os_remove=True, partition=None, exclude=None):
         
         """
@@ -98,7 +103,8 @@ class Slurm:
             - args (str or list, optional): Command-line arguments for the Python script, by default None.
             - sh_path (str, optional): Directory path where the job script will be saved. If None, current directory is used.
             - eo_path (str, optional): Path for the standard output and error log files, by default "/hom/sbnb/ddalton/area_52/scripts/run_log".
-            - image (str, optional): Path to the Singularity image, by default "/aloy/home/ddalton/singularity_images/cc_py37.simg".
+            - singularity_image (str, optional): Path to the Singularity image, by default None. 
+            - conda_env (str, optional): Name of the conda environment to activate, by default None.
             - cc_image (bool, optional): Flag indicating whether to use a specific Singularity image for ChemicalChecker, by default True.
             - os_remove (bool, optional): Flag to remove the job script file after submission, by default True.
             - partition (str, optional): Specifies a partition for the job, if needed, by default None.
@@ -119,15 +125,24 @@ class Slurm:
 {gpu_config}
 
 cd {script_dir}
-
-
+"""
+        if singularity_image is not None:
+            job_script_template += """
 # for DB servers connection
 export SINGULARITYENV_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
 export SINGULARITY_BINDPATH="/home/sbnb:/aloy/home,/data/sbnb/data:/aloy/data,/data/sbnb/scratch:/aloy/scratch,/data/sbnb/chemicalchecker:/aloy/web_checker,/data/sbnb/web_updates:/aloy/web_repository"
 {commands}
 """
-        # previously: export SINGULARITY_BINDPATH="/aloy/home"
-
+            image = singularity_image
+        elif conda_env is not None:
+            job_script_template += """
+module load anaconda3
+conda activate {conda_env}
+{commands}
+"""
+            image = conda_env
+        else: 
+            raise ValueError("Either singularity_image or conda_env must be provided.")
         if N is None:
             N = script_py.split("/")[-1].split(" ")[0].split(".py")[0]
         self.N = N
@@ -146,12 +161,12 @@ export SINGULARITY_BINDPATH="/home/sbnb:/aloy/home,/data/sbnb/data:/aloy/data,/d
             if not os.path.exists(eo_path):
                 raise FileNotFoundError(f"Path {eo_path} does not exist.")
 
+        
         if not os.path.exists(image):
             image = os.path.join(os.getcwd(), image)
             if not os.path.exists(image):
                 raise FileNotFoundError(f"Singularity image {image} does not exist.")
 
-        image = image
         eo_path = os.path.abspath(eo_path)
 
         options = f"""
@@ -162,18 +177,21 @@ export SINGULARITY_BINDPATH="/home/sbnb:/aloy/home,/data/sbnb/data:/aloy/data,/d
 #SBATCH --output={eo_path}/{N}.%j.out
 """
 
-        gpu_config = ""
-        commands = f"singularity exec {image} python {args_str}"
+        gpu_config = "source /etc/profile.d/z00-lmod.sh"
+        
         if partition:
             options += f"\n#SBATCH --partition={partition}"
         if exclude:
             options += f"\n#SBATCH --exclude={exclude}"
 
-        if gpus:
-            options += f"\n#SBATCH --gpus={gpus}"
-            commands = f"singularity exec --cleanenv --nv {image} python {args_str}"
-            if self.host == 'irblogin01.irbbarcelona.pcb.ub.es':
-                gpu_config = """
+        assert (singularity_image is not None) ^ (conda_env is not None), "Provide only one: either 'singularity_image' or 'conda_env'."
+        if singularity_image is not None:
+            commands = f"singularity exec {image} python {args_str}"
+            if gpus:
+                options += f"\n#SBATCH --gpus={gpus}"
+                commands = f"singularity exec --cleanenv --nv {image} python {args_str}"
+                if self.host == 'irblogin01.irbbarcelona.pcb.ub.es':
+                    gpu_config = """
 # Source LMOD
 # Necessary for using `module` - this when using 
 # paramiko is not loaded
@@ -181,8 +199,8 @@ source /etc/profile.d/z00-lmod.sh
 
 # CUDA drivers
 module load CUDA/12.0.0"""
-            elif self.host == 'hpclogin1':
-                gpu_config = """
+                elif self.host == 'hpclogin1':
+                    gpu_config = """
 # Source LMOD
 # Necessary for using `module` - this when using 
 # paramiko is not loaded
@@ -196,6 +214,8 @@ export LD_LIBRARY_PATH=/apps/manual/software/CUDA/11.6.1/lib64:/apps/manual/soft
 export SINGULARITYENV_LD_LIBRARY_PATH=$LD_LIBRARY_PATH #/.singularity.d/libs
 export SINGULARITY_BINDPATH="/aloy/home,/aloy/data,/aloy/scratch,/aloy/web_checker,/aloy/web_repository"
 """                         
+        if conda_env is not None:
+            commands = f"python {args_str}"
 
         array_config = ""
         if array:
@@ -209,13 +229,14 @@ OFFSET={offset}
 TASK_ID=$(($SLURM_ARRAY_TASK_ID + $OFFSET))
 """
 
-        #! GOOD PRACTICE WOULD BE TO SEPERATE ARGUMENTS FROM SCRIPT NAME
         script_dir = os.path.dirname(script_py.split(" ")[0])
         if len(script_dir) == 0:
             script_dir = os.getcwd()
 
-        job_script = job_script_template.format(options=options,gpu_config=gpu_config,script_dir=script_dir, array_config=array_config,commands=commands)
-
+        if conda_env is not None:
+            job_script = job_script_template.format(options=options,gpu_config=gpu_config,script_dir=script_dir, array_config=array_config,conda_env=conda_env, commands=commands)
+        else:
+            job_script = job_script_template.format(options=options,gpu_config=gpu_config,script_dir=script_dir, array_config=array_config,commands=commands)
         jobname_sh = f"job_{str(uuid.uuid4())[:4]}.sh"
         jobname_sh_path = os.path.join(sh_path, jobname_sh)
 
@@ -350,9 +371,9 @@ TASK_ID=$(($SLURM_ARRAY_TASK_ID + $OFFSET))
             self.ssh.connect(self.host, username=self.username, password=self.password)
 
             # Command to retrieve basic node information
-            command = "sinfo -N -o '%N %P %C %G'"
-            _stdin, _stdout, _stderr = self.ssh.exec_command(command)
-            node_info_raw = _stdout.read().decode().strip().splitlines()[1:]  # Skip header
+            sinfo_command = "sinfo -N -o '%N %P %C %G'"
+            _stdin, _stdout, _stderr = self.ssh.exec_command(sinfo_command)
+            sinfo_output = _stdout.read().decode().strip().splitlines()[1:]  # Skip header
             error_output = _stderr.read().decode().strip()
 
             if error_output:
@@ -360,12 +381,12 @@ TASK_ID=$(($SLURM_ARRAY_TASK_ID + $OFFSET))
                 return
 
             node_data = []
-            for line in node_info_raw:
+            for line in sinfo_output:
                 parts = line.split()
                 node_name = parts[0]
                 partitions = parts[1]
                 cpus_info = parts[2]
-                gpus_info = parts[3] if parts[3] != "null" else "-"
+                gpus_info = parts[3] if parts[3] != "(null)" else "-"
                 node_data.append((node_name, partitions, cpus_info, gpus_info))
 
             # Fetch detailed memory and GPU information for each node
@@ -380,21 +401,27 @@ TASK_ID=$(($SLURM_ARRAY_TASK_ID + $OFFSET))
                 # Extract memory details
                 total_memory = int(self._extract_value(scontrol_output, "RealMemory", default="0"))
                 allocated_memory = int(self._extract_value(scontrol_output, "AllocMem", default="0"))
-                free_memory = total_memory - allocated_memory
+                free_memory = int(self._extract_value(scontrol_output, "FreeMem", default="0"))
+
+                # Convert memory to GB
+                total_memory_gb = total_memory // 1024
+                allocated_memory_gb = allocated_memory // 1024
+                free_memory_gb = free_memory // 1024
+
+                memory_formatted = f"{allocated_memory_gb}/{total_memory_gb}/{free_memory_gb}GB"
 
                 # Extract GPU details (use default if keys are missing)
                 gpu_total = self._safe_extract_gpu(scontrol_output, "Gres=gpu")
                 gpu_allocated = self._safe_extract_gpu(scontrol_output, "AllocTRES=gpu")
                 gpu_free = max(0, gpu_total - gpu_allocated)
 
-                memory_formatted = f"{allocated_memory // 1024}/{total_memory // 1024}/{free_memory // 1024}GB"
                 gpu_formatted = f"{gpu_allocated}/{gpu_total}/{gpu_free}"
 
                 detailed_info.append(f"{node_name}\t{cpus_info}\t{memory_formatted}\t{gpu_formatted}\t{partitions}")
 
             # Log the results in a formatted table
             logging.info("Node Information (A: Allocated, T: Total, F: Free):")
-            logging.info("\nNode\tCPUs(A/F/O/T)\tMemory(A/T/F)\tGPUs(A/T/F)\tPartitions")
+            logging.info("Node\tCPUs(A/F/O/T)\tMemory(A/T/F)\tGPUs(A/T/F)\tPartitions")
             for line in detailed_info:
                 print(line)
 
@@ -408,6 +435,15 @@ TASK_ID=$(($SLURM_ARRAY_TASK_ID + $OFFSET))
     def _extract_value(self, output, key, splitter="=", default=None):
         """
         Utility function to extract a specific value from the scontrol output.
+
+        Args:
+            output (str): The output string from scontrol.
+            key (str): The key to search for.
+            splitter (str): The delimiter used to split the key-value pair.
+            default: The default value to return if the key is not found.
+
+        Returns:
+            str or default: The extracted value or the default if the key is not found.
         """
         try:
             line = next((line for line in output.splitlines() if key in line), None)
@@ -421,6 +457,13 @@ TASK_ID=$(($SLURM_ARRAY_TASK_ID + $OFFSET))
     def _safe_extract_gpu(self, output, key):
         """
         Safely extract GPU details from scontrol output, returning 0 if unavailable.
+
+        Args:
+            output (str): The output string from scontrol.
+            key (str): The key to search for in the output.
+
+        Returns:
+            int: The extracted value or 0 if the key is not found or an error occurs.
         """
         try:
             line = next((line for line in output.splitlines() if key in line), None)
@@ -430,7 +473,6 @@ TASK_ID=$(($SLURM_ARRAY_TASK_ID + $OFFSET))
         except Exception:
             return 0
         return 0
-
 
 
 # this used to be necessary for GPU !
