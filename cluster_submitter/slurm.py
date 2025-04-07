@@ -176,7 +176,7 @@ conda activate {conda_env}
 #SBATCH --mem={mem}GB
 #SBATCH --output={eo_path}/{N}.%j.out
 """
-
+    
         gpu_config = "source /etc/profile.d/z00-lmod.sh"
         
         if partition:
